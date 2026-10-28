@@ -25,7 +25,7 @@ def get_krx_tickers():
         
         tickers = []
         for url, suffix in [(url_kospi, ".KS"), (url_kosdaq, ".KQ")]:
-            for page in range(1, 15):
+            for page in range(1, 40):  # 전체 페이지 넉넉하게 탐색
                 target_url = url.replace("page=1", f"page={page}")
                 dfs = pd.read_html(target_url, encoding='euc-kr')
                 df = dfs[1]
@@ -35,10 +35,12 @@ def get_krx_tickers():
                 for _, row in df.iterrows():
                     code = str(row['종목코드']).zfill(6)
                     tickers.append(code + suffix)
-        return list(set(tickers))
+        unique_tickers = list(set(tickers))
+        print(f"총 {len(unique_tickers)}개의 국내 전체 종목 코드를 성공적으로 불러왔습니다.")
+        return unique_tickers
     except Exception as e:
-        print(f"종목 리스트 수집 실패, 기본 주요 종목으로 대체합니다: {e}")
-        return ["005930.KS", "000660.KS", "373220.KS", "207940.KS", "005380.KS", "035420.KS", "035720.KS"]
+        print(f"종목 리스트 수집 실패: {e}")
+        return []
 
 def check_ricebowl_stock(ticker_symbol):
     try:
@@ -59,6 +61,7 @@ def check_ricebowl_stock(ticker_symbol):
         sma112 = float(recent['SMA112'].item() if hasattr(recent['SMA112'], 'item') else recent['SMA112'])
         sma224 = float(recent['SMA224'].item() if hasattr(recent['SMA224'], 'item') else recent['SMA224'])
         
+        # 밥그릇 패턴 3번 자리 조건
         max_high = float(df['High'].iloc[-250:-60].max())
         prev_close = float(prev_6m['Close'])
         
@@ -68,14 +71,16 @@ def check_ricebowl_stock(ticker_symbol):
         if is_dropped and is_above_224:
             msg = f"🥣 *[밥그릇 패턴 3번 자리 포착]*\n- 종목코드: `{ticker_symbol}`\n- 현재가: {current_price:,.0f}원\n- 224일선: {sma224:,.0f}원\n- 112일선: {sma112:,.0f}원"
             send_telegram_msg(msg)
-            print(f"★ 포착 완료: {ticker_symbol}")
+            print(f"★ 포착 완료 및 전송: {ticker_symbol}")
     except Exception as e:
         pass
 
+# 전체 종목 가져와서 스캔 실행
 tickers = get_krx_tickers()
-print(f"총 {len(tickers)}개 종목 대상 밥그릇 패턴 스캔 시작...")
-
-for t in tickers:
-    check_ricebowl_stock(t)
-
-print("전체 종목 스캔 완료!")
+if tickers:
+    print(f"전체 종목 대상 밥그릇 패턴 분석을 시작합니다...")
+    for t in tickers:
+        check_ricebowl_stock(t)
+    print("전체 종목 스캔 및 분석 완료!")
+else:
+    print("스캔할 종목 리스트가 비어 있습니다.")
