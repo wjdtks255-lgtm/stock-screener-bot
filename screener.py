@@ -1,8 +1,8 @@
 import os
-import io
 import requests
 import yfinance as yf
 import pandas as pd
+from pykrx import stock
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
@@ -20,25 +20,12 @@ def send_telegram_msg(message):
         print(f"에러: {e}")
 
 def get_krx_tickers():
-    tickers = []
-    headers = {'User-Agent': 'Mozilla/5.0'}
     try:
-        for sosok, suffix in [(0, ".KS"), (1, ".KQ")]:
-            for page in range(1, 40):
-                url = f"https://finance.naver.com/sise/sise_market_sum.naver?sosok={sosok}&page={page}"
-                res = requests.get(url, headers=headers)
-                res.encoding = 'cp949'
-                dfs = pd.read_html(io.StringIO(res.text))
-                df = dfs[1]
-                df = df.dropna(subset=['종목명'])
-                if len(df) == 0:
-                    break
-                for _, row in df.iterrows():
-                    code = str(row['종목코드']).zfill(6)
-                    tickers.append(code + suffix)
-        unique_tickers = list(set(tickers))
-        print(f"총 {len(unique_tickers)}개의 국내 전체 종목 코드를 성공적으로 불러왔습니다.")
-        return unique_tickers
+        kospi = stock.get_market_ticker_list(market="KOSPI")
+        kosdaq = stock.get_market_ticker_list(market="KOSDAQ")
+        tickers = [t + ".KS" for t in kospi] + [t + ".KQ" for t in kosdaq]
+        print(f"총 {len(tickers)}개의 국내 전체 종목 코드를 성공적으로 불러왔습니다.")
+        return tickers
     except Exception as e:
         print(f"종목 리스트 수집 실패: {e}")
         return ["005930.KS", "000660.KS", "373220.KS", "207940.KS", "005380.KS", "035420.KS", "035720.KS"]
