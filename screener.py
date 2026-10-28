@@ -1,4 +1,5 @@
 import os
+import io
 import requests
 import yfinance as yf
 import pandas as pd
@@ -19,17 +20,17 @@ def send_telegram_msg(message):
         print(f"에러: {e}")
 
 def get_krx_tickers():
+    tickers = []
+    headers = {'User-Agent': 'Mozilla/5.0'}
     try:
-        url_kospi = "https://finance.naver.com/sise/sise_market_sum.naver?sosok=0&page=1"
-        url_kosdaq = "https://finance.naver.com/sise/sise_market_sum.naver?sosok=1&page=1"
-        
-        tickers = []
-        for url, suffix in [(url_kospi, ".KS"), (url_kosdaq, ".KQ")]:
-            for page in range(1, 40):  # 전체 페이지 넉넉하게 탐색
-                target_url = url.replace("page=1", f"page={page}")
-                dfs = pd.read_html(target_url, encoding='euc-kr')
+        for sosok, suffix in [(0, ".KS"), (1, ".KQ")]:
+            for page in range(1, 40):
+                url = f"https://finance.naver.com/sise/sise_market_sum.naver?sosok={sosok}&page={page}"
+                res = requests.get(url, headers=headers)
+                res.encoding = 'cp949'
+                dfs = pd.read_html(io.StringIO(res.text))
                 df = dfs[1]
-                df = df.dropna(subset=['종목명'])    
+                df = df.dropna(subset=['종목명'])
                 if len(df) == 0:
                     break
                 for _, row in df.iterrows():
@@ -40,7 +41,7 @@ def get_krx_tickers():
         return unique_tickers
     except Exception as e:
         print(f"종목 리스트 수집 실패: {e}")
-        return []
+        return ["005930.KS", "000660.KS", "373220.KS", "207940.KS", "005380.KS", "035420.KS", "035720.KS"]
 
 def check_ricebowl_stock(ticker_symbol):
     try:
@@ -61,7 +62,6 @@ def check_ricebowl_stock(ticker_symbol):
         sma112 = float(recent['SMA112'].item() if hasattr(recent['SMA112'], 'item') else recent['SMA112'])
         sma224 = float(recent['SMA224'].item() if hasattr(recent['SMA224'], 'item') else recent['SMA224'])
         
-        # 밥그릇 패턴 3번 자리 조건
         max_high = float(df['High'].iloc[-250:-60].max())
         prev_close = float(prev_6m['Close'])
         
@@ -75,7 +75,6 @@ def check_ricebowl_stock(ticker_symbol):
     except Exception as e:
         pass
 
-# 전체 종목 가져와서 스캔 실행
 tickers = get_krx_tickers()
 if tickers:
     print(f"전체 종목 대상 밥그릇 패턴 분석을 시작합니다...")
