@@ -1,9 +1,10 @@
 name: Daily Stock & News Scanner
 
 on:
-  repository_dispatch:
-    types: [run_screener]
-  workflow_dispatch:
+  schedule:
+    # 한국시간(KST) 매일 09:00 ~ 15:00 (UTC 기준 00:00 ~ 06:00, 매 1시간마다 실행)
+    - cron: '0 0-6 * * *'
+  workflow_dispatch: # Actions 탭에서 언제든 수동 테스트 가능
 
 jobs:
   run-scanner:
