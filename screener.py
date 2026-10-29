@@ -34,7 +34,6 @@ def load_slots():
         except:
             pass
     
-    # 초기 8칸 빈 슬롯 세팅
     slots = []
     for i in range(1, MAX_SLOTS + 1):
         slots.append({
@@ -56,7 +55,7 @@ def save_slots(slots):
         json.dump(slots, f, ensure_ascii=False, indent=4)
 
 def get_stock_news(stock_code):
-    """종목별 최신 뉴스 헤드라인 파싱"""
+    """종목별 최신 뉴스 헤드라인(소재거리) 파싱"""
     url = f"https://m.stock.naver.com/api/news/stock/{stock_code}?pageSize=1&page=1"
     headers = {"User-Agent": "Mozilla/5.0"}
     try:
@@ -68,12 +67,10 @@ def get_stock_news(stock_code):
                 return re.sub('<[^<]+?>', '', title)
     except:
         pass
-    return "신규 모멘텀 분석 중"
+    return "신규 모멘텀 및 수급 분석 중"
 
 def get_current_price(code):
     """네이버 금융에서 종목의 현재가 조회"""
-    url = f"https://m.stock.naver.com/api/stock/oem/integrationList.nhn?keyword={code}"
-    # 간단하게 거래대금 API 등에서 현재가 추출
     url_sise = f"https://m.stock.naver.com/api/json/sise/searchStockInfo.nhn?code={code}"
     headers = {"User-Agent": "Mozilla/5.0"}
     try:
@@ -101,7 +98,7 @@ def run_slot_manager():
     slots = load_slots()
     now_kst = (datetime.datetime.utcnow() + datetime.timedelta(hours=9)).strftime('%Y-%m-%d %H:%M')
     
-    # 1단계: 기존에 채워진 슬롯들의 가격 변동 추적 (목표가/손절가 체크)
+    # 1단계: 기존 슬롯 종목들의 가격 추적 (목표가/손절가 체크)
     slot_changed = False
     for s in slots:
         if s["status"] == "EMPTY":
@@ -117,13 +114,12 @@ def run_slot_manager():
                 f"🛡️ *[⚠️ 종목 슬롯 손절 이탈 & 슬롯 비움]*\n"
                 f"📅 일시: `{now_kst}`\n\n"
                 f"**[Slot {s['slot_id']:02d}] {s['name']} ({s['code']})** 가 손절가를 이탈했습니다!\n"
-                f"• *현재가:* `{cur_price:,}원` (기준가: `{s['stop_loss']:,}원` 이탈)\n"
+                f"• *현재가:* `{cur_price:,}원` (손절 기준: `{s['stop_loss']:,}원` 이탈)\n"
                 f"• *조치:* 원칙에 따라 슬롯을 비우고 현금 회수\n\n"
             )
             msg += format_slots_status(slots)
             send_telegram_message(msg)
             
-            # 슬롯 초기화 (EMPTY)
             s.update({"code": None, "name": None, "status": "EMPTY", "entry_price": 0, "target_1": 0, "target_2": 0, "stop_loss": 0, "news": ""})
             slot_changed = True
             
@@ -133,7 +129,7 @@ def run_slot_manager():
                 f"🚀 *[종목 슬롯 최종 익절 마감 & 슬롯 비움]*\n"
                 f"📅 일시: `{now_kst}`\n\n"
                 f"**[Slot {s['slot_id']:02d}] {s['name']} ({s['code']})** 이 2차 목표가를 달성했습니다!\n"
-                f"• *현재가:* `{cur_price:,}원` (2차 목표가: `{s['target_2']:,}원` 돌파)\n"
+                f"• *현재가:* `{cur_price:,}원` (2차 목표: `{s['target_2']:,}원` 돌파)\n"
                 f"• *조치:* 전량 익절 완료 후 슬롯 비움 (예수금 전환)\n\n"
             )
             msg += format_slots_status(slots)
@@ -159,12 +155,12 @@ def run_slot_manager():
     empty_slots = [s for s in slots if s["status"] == "EMPTY"]
     
     if len(empty_slots) == 0:
-        print(f"[{now_kst}] 8개 슬롯이 모두 가득 차 있어 신규 종목 탐색을 건너뜁니다.")
+        print(f"[{now_kst}] 8개 슬롯이 모두 가득 차 있어 신규 종목 탐색을 대기합니다.")
         if slot_changed:
             save_slots(slots)
         return
 
-    print(f"[{now_kst}] 현재 빈 슬롯 {len(empty_slots)}개 발견. 신규 밥그릇 종목 스캔 중...")
+    print(f"[{now_kst}] 현재 빈 슬롯 {len(empty_slots)}개 발견. 밥그릇 기법 종목 스캔 중...")
 
     # 3단계: 빈칸이 있다면 새로운 밥그릇 종목 스캔 후 채우기
     url = "https://m.stock.naver.com/api/json/sise/siseListJson.nhn?menu=trade_amt&sosok=0&pageSize=20"
@@ -176,7 +172,6 @@ def run_slot_manager():
             data = res.json()
             items = data.get("result", {}).get("items", [])
             
-            # 이미 슬롯에 들어있는 종목 코드 리스트
             existing_codes = [s["code"] for s in slots if s["code"] is not None]
             
             for item in items:
@@ -187,7 +182,7 @@ def run_slot_manager():
                 name = item.get("nm", "")
                 
                 if code in existing_codes:
-                    continue # 이미 슬롯에 있는 종목은 패스
+                    continue
                     
                 try:
                     cur = int(str(item.get("nv", "0")).replace(",", ""))
@@ -195,14 +190,14 @@ def run_slot_manager():
                 except:
                     continue
                     
-                # 밥그릇 기법 조건 (상승세 및 거래대금 유입) 확보된 종목 필터링
+                # 밥그릇 기법 수급 필터 (상승세 및 거래대금 유입)
                 if cur > 1000 and change_rate >= 0.0:
-                    target_slot = empty_slots.pop(0) # 첫 번째 빈 슬롯 배정
+                    target_slot = empty_slots.pop(0)
                     
                     entry = cur
-                    t1 = int(cur * 1.08)
-                    t2 = int(cur * 1.16)
-                    sl = int(cur * 0.93)
+                    t1 = int(cur * 1.08) # 1차 목표가 (+8%)
+                    t2 = int(cur * 1.16) # 2차 목표가 (+16%)
+                    sl = int(cur * 0.93) # 손절가 (-7%)
                     news_title = get_stock_news(code)
                     
                     target_slot.update({
@@ -224,10 +219,10 @@ def run_slot_manager():
                         f"📅 일시: `{now_kst}`\n\n"
                         f"**새로운 종목이 [Slot {target_slot['slot_id']:02d}]에 편입되었습니다!**\n\n"
                         f"• *종목명:* `{name} ({code})`\n"
-                        f"• *핵심 뉴스:* {news_title}\n"
-                        f"• *매수 기준가:* `{entry:,}원`\n"
-                        f"• *🎯 1차 목표:* `{t1:,}원` | *🎯 2차 목표:* `{t2:,}원`\n"
-                        f"• *🛡️ 손절 기준:* `{sl:,}원`\n\n"
+                        f"• *🔥 핵심 뉴스:* {news_title}\n"
+                        f"• *매수 진입가:* `{entry:,}원`\n"
+                        f"• *🎯 1차 목표가:* `{t1:,}원` | *🎯 2차 목표가:* `{t2:,}원`\n"
+                        f"• *🛡️ 손절 기준가:* `{sl:,}원`\n\n"
                     )
                     add_msg += format_slots_status(slots)
                     send_telegram_message(add_msg)
