@@ -1,72 +1,68 @@
 import os
 import requests
-import yfinance as yf
-import pandas as pd
-from pykrx import stock
+import datetime
+# import FinanceDataReader as fdr  # 주가 및 거래대금 데이터 수집용 (필요시 설치)
 
-TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
-CHAT_ID = os.environ.get("CHAT_ID")
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
-def send_telegram_msg(message):
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {"chat_id": CHAT_ID, "text": message, "parse_mode": "Markdown"}
-    try:
-        res = requests.post(url, json=payload)
-        if res.status_code == 200:
-            print("텔레그램 메시지 전송 성공")
-        else:
-            print(f"전송 실패: {res.text}")
-    except Exception as e:
-        print(f"에러: {e}")
+def send_telegram_message(message):
+    """텔레그램으로 분석 결과 전송"""
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": message,
+        "parse_mode": "Markdown"
+    }
+    response = requests.post(url, json=payload)
+    if response.status_code != 200:
+        print(f"텔레그램 전송 실패: {response.text}")
 
-def get_krx_tickers():
-    try:
-        kospi = stock.get_market_ticker_list(market="KOSPI")
-        kosdaq = stock.get_market_ticker_list(market="KOSDAQ")
-        tickers = [t + ".KS" for t in kospi] + [t + ".KQ" for t in kosdaq]
-        print(f"총 {len(tickers)}개의 국내 전체 종목 코드를 성공적으로 불러왔습니다.")
-        return tickers
-    except Exception as e:
-        print(f"종목 리스트 수집 실패: {e}")
-        return ["005930.KS", "000660.KS", "373220.KS", "207940.KS", "005380.KS", "035420.KS", "035720.KS"]
+def fetch_market_data_and_news():
+    """
+    1. 오늘 나온 뉴스 키워드 매칭 및 수급(거래대금 터진 종목) 필터링 로직 구현부
+    2. 여기서는 예시 구조를 제공합니다. 실제 연동 시 PyKrx, FinanceDataReader 또는 증권사 API 활용
+    """
+    today = datetime.datetime.now().strftime("%Y-%m-%d")
+    print(f"[{today}] 시장 수급 및 뉴스 스캔 시작...")
+    
+    # [예시 데이터] 실제로 돈이 붙었다고 가정되는 종목 리스트
+    # 실전에서는 거래대금 상위 종목 중 외인/기관 순매수 동반 및 당일 뉴스 키워드가 매칭되는 종목을 필터링
+    hot_stocks = [
+        {
+            "name": "예시종목A",
+            "code": "000000",
+            "turnover": "1,500억",
+            "sugep": "외인+기관 양매수",
+            "news": "정부 신사업 육성 정책 발표 및 대규모 수주 기대감",
+            "support": "12,000원",
+            "resistance": "15,000원",
+            "scenario": "단기 박스권 상단 돌파 시 17,000원까지 룸 열림. 단, 11,500원 이탈 시 관망."
+        }
+    ]
+    return hot_stocks
 
-def check_ricebowl_stock(ticker_symbol):
-    try:
-        df = yf.download(ticker_symbol, period="1y", interval="1d", progress=False)
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(0)
-            
-        if len(df) < 224:
-            return
-        
-        df['SMA112'] = df['Close'].rolling(window=112).mean()
-        df['SMA224'] = df['Close'].rolling(window=224).mean()
-        
-        recent = df.iloc[-1]
-        prev_6m = df.iloc[-120]
-        
-        current_price = float(recent['Close'].item() if hasattr(recent['Close'], 'item') else recent['Close'])
-        sma112 = float(recent['SMA112'].item() if hasattr(recent['SMA112'], 'item') else recent['SMA112'])
-        sma224 = float(recent['SMA224'].item() if hasattr(recent['SMA224'], 'item') else recent['SMA224'])
-        
-        max_high = float(df['High'].iloc[-250:-60].max())
-        prev_close = float(prev_6m['Close'])
-        
-        is_dropped = (max_high - prev_close) / max_high >= 0.35
-        is_above_224 = (current_price >= sma224) and (current_price >= sma112)
-        
-        if is_dropped and is_above_224:
-            msg = f"🥣 *[밥그릇 패턴 3번 자리 포착]*\n- 종목코드: `{ticker_symbol}`\n- 현재가: {current_price:,.0f}원\n- 224일선: {sma224:,.0f}원\n- 112일선: {sma112:,.0f}원"
-            send_telegram_msg(msg)
-            print(f"★ 포착 완료 및 전송: {ticker_symbol}")
-    except Exception as e:
-        pass
+def analyze_and_report():
+    stocks = fetch_market_data_and_news()
+    
+    if not stocks:
+        msg = "📢 *[시장 스캔 결과]*\n\n오늘 장에서 기준(거래대금·수급)을 만족한 종목이 없습니다."
+        send_telegram_message(msg)
+        return
 
-tickers = get_krx_tickers()
-if tickers:
-    print(f"전체 종목 대상 밥그릇 패턴 분석을 시작합니다...")
-    for t in tickers:
-        check_ricebowl_stock(t)
-    print("전체 종목 스캔 및 분석 완료!")
-else:
-    print("스캔할 종목 리스트가 비어 있습니다.")
+    report = f"🚨 *[AI 주식 수급 및 시나리오 리포트]*\n"
+    report += f"📅 일시: `{datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}`\n"
+    report += "-----------------------------------\n\n"
+
+    for idx, item in enumerate(stocks, 1):
+        report += f"*{idx}. {item['name']} ({item['code'])*`\n"
+        report += f"• *거래대금/수급:* {item['turnover']} / {item['sugep']}\n"
+        report += f"• *관련 뉴스:* {item['news']}\n"
+        report += f"• *핵심 가격:* 지지 `{item['support']}` | 저항 `{item['resistance']}`\n"
+        report += f"• *💡 대응 시나리오:* \n  {item['scenario']}\n\n"
+        report += "-----------------------------------\n"
+
+    send_telegram_message(report)
+
+if __name__ == "__main__":
+    analyze_and_report()
