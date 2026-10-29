@@ -73,7 +73,7 @@ def get_stock_news(stock_code):
                 return re.sub('<[^<]+?>', '', title)
     except:
         pass
-    return "신규 모멘텀 및 수급 분석 중"
+    return "바닥권 거래량 터진 수급 초입 종목"
 
 def get_current_price(code):
     """네이버 금융 현재가 조회"""
@@ -105,7 +105,7 @@ def run_slot_manager():
     now_kst = (datetime.datetime.utcnow() + datetime.timedelta(hours=9)).strftime('%Y-%m-%d %H:%M')
     slot_changed = False
     
-    # 1. 기존 종목 모니터링
+    # 1. 기존 종목 추적 및 익절/손절 체크
     for s in slots:
         if s["status"] == "EMPTY":
             continue
@@ -120,7 +120,7 @@ def run_slot_manager():
                 f"📅 일시: `{now_kst}`\n\n"
                 f"**[Slot {s['slot_id']:02d}] {s['name']} ({s['code']})** 이 손절가를 이탈했습니다.\n"
                 f"• *현재가:* `{cur_price:,}원` (손절 기준: `{s['stop_loss']:,}원`)\n"
-                f"• *조치:* 원칙에 따른 손절 매도 및 공석 전환\n\n"
+                f"• *조치:* 원칙 매도 후 공석 전환\n\n"
             ) + format_slots_status(slots)
             send_telegram_message(msg)
             s.update({"code": None, "name": None, "status": "EMPTY", "entry_price": 0, "target_1": 0, "target_2": 0, "stop_loss": 0, "news": ""})
@@ -146,63 +146,78 @@ def run_slot_manager():
                 f"📅 일시: `{now_kst}`\n\n"
                 f"**[Slot {s['slot_id']:02d}] {s['name']} ({s['code']})** 이 1차 목표가(`{s['target_1']:,}원`)에 도달했습니다.\n"
                 f"• *현재가:* `{cur_price:,}원`\n"
-                f"• *조치:* 50% 분할 익절 후 2차 목표가(`{s['target_2']:,}원`) 추세 유지\n"
+                f"• *조치:* 50% 분할 익절 후 2차 목표가(`{s['target_2']:,}원`) 대기\n"
             )
             send_telegram_message(msg)
 
-    # 2. 빈자리 스캔 및 편입
+    # 2. 공석 스캔: 바닥 다진 후 거래량 터지는 턴어라운드 초입 종목 선별
     empty_slots = [s for s in slots if s["status"] == "EMPTY"]
     
     if len(empty_slots) > 0:
-        url = "https://m.stock.naver.com/api/json/sise/siseListJson.nhn?menu=trade_amt&sosok=0&pageSize=20"
+        # 이미 많이 오른 1~20위 제외, 거래량 급증 가능성이 있는 30~150위권 스캔 (페이지 단위)
+        candidate_items = []
         headers = {"User-Agent": "Mozilla/5.0"}
-        try:
-            res = requests.get(url, headers=headers, timeout=5)
-            if res.status_code == 200:
-                items = res.json().get("result", {}).get("items", [])
-                existing_codes = [s["code"] for s in slots if s["code"] is not None]
+        
+        for page in [2, 3, 4, 5]:  # 상위권 고점 배제 및 중위권 스캔
+            url = f"https://m.stock.naver.com/api/json/sise/siseListJson.nhn?menu=quant&sosok=0&pageSize=30&page={page}"
+            try:
+                res = requests.get(url, headers=headers, timeout=5)
+                if res.status_code == 200:
+                    items = res.json().get("result", {}).get("items", [])
+                    candidate_items.extend(items)
+            except Exception as e:
+                print(f"페이지 {page} 스캔 예외: {e}")
+
+        existing_codes = [s["code"] for s in slots if s["code"] is not None]
+        
+        for item in candidate_items:
+            if len(empty_slots) == 0:
+                break
                 
-                for item in items:
-                    if len(empty_slots) == 0:
-                        break
-                    code, name = item.get("cd", ""), item.get("nm", "")
-                    if not code or code in existing_codes:
-                        continue
-                    try:
-                        cur = int(str(item.get("nv", "0")).replace(",", ""))
-                        cr = float(item.get("cr", "0"))
-                    except:
-                        continue
-                        
-                    if cur > 1000 and cr >= 0.0:
-                        target_slot = empty_slots.pop(0)
-                        t1, t2, sl = int(cur * 1.08), int(cur * 1.16), int(cur * 0.93)
-                        news_title = get_stock_news(code)
-                        
-                        target_slot.update({
-                            "code": code,
-                            "name": name,
-                            "status": "ACTIVE",
-                            "entry_price": cur,
-                            "target_1": t1,
-                            "target_2": t2,
-                            "stop_loss": sl,
-                            "news": news_title
-                        })
-                        slot_changed = True
-                        
-                        add_msg = (
-                            f"📥 *[신규 관리 종목 편입]*\n"
-                            f"📅 일시: `{now_kst}`\n\n"
-                            f"**[Slot {target_slot['slot_id']:02d}] {name} ({code})**\n"
-                            f"• *모멘텀 뉴스:* {news_title}\n"
-                            f"• *진입가:* `{cur:,}원`\n"
-                            f"• *1차 목표가:* `{t1:,}원` | *2차 목표가:* `{t2:,}원`\n"
-                            f"• *손절가:* `{sl:,}원`\n\n"
-                        ) + format_slots_status(slots)
-                        send_telegram_message(add_msg)
-        except Exception as e:
-            print(f"스캔 오류: {e}")
+            code, name = item.get("cd", ""), item.get("nm", "")
+            if not code or code in existing_codes:
+                continue
+                
+            try:
+                cur = int(str(item.get("nv", "0")).replace(",", ""))
+                cr = float(item.get("cr", "0"))  # 등락률
+                
+                # 거래량 비교 (전일 대비 급증 여부)
+                aq = int(str(item.get("aq", "0")).replace(",", ""))  # 현재 거래량
+            except:
+                continue
+                
+            # 조건: 동전주 제외 + 당일 등락률 2.5% ~ 14.5% (과열 상단 배제, 적정 우측 능선 세우기)
+            if cur >= 1500 and 2.5 <= cr <= 14.5:
+                target_slot = empty_slots.pop(0)
+                
+                t1 = int(cur * 1.08)
+                t2 = int(cur * 1.16)
+                sl = int(cur * 0.93)
+                news_title = get_stock_news(code)
+                
+                target_slot.update({
+                    "code": code,
+                    "name": name,
+                    "status": "ACTIVE",
+                    "entry_price": cur,
+                    "target_1": t1,
+                    "target_2": t2,
+                    "stop_loss": sl,
+                    "news": news_title
+                })
+                slot_changed = True
+                
+                add_msg = (
+                    f"📥 *[우측 능선 턴어라운드 초입 종목 편입]*\n"
+                    f"📅 일시: `{now_kst}`\n\n"
+                    f"**[Slot {target_slot['slot_id']:02d}] {name} ({code})**\n"
+                    f"• *수급/모멘텀:* {news_title}\n"
+                    f"• *진입 포착가:* `{cur:,}원` (등락률: `+{cr}%`)\n"
+                    f"• *1차 목표가:* `{t1:,}원` | *2차 목표가:* `{t2:,}원`\n"
+                    f"• *손절 기준가:* `{sl:,}원`\n\n"
+                ) + format_slots_status(slots)
+                send_telegram_message(add_msg)
 
     if slot_changed:
         save_slots(slots)
