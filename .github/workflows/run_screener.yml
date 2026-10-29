@@ -2,9 +2,9 @@ name: Daily Stock & News Scanner
 
 on:
   schedule:
-    # 매주 월~금 한국 시간 기준 오후 4시 30분 (UTC 07:30) 자동 실행
-    - cron: '30 7 * * 1-5'
-  workflow_dispatch: # Actions 탭에서 수동 실행 가능 버튼 생성
+    # 한국시간(KST) 매일(월~일) 09:00 ~ 20:00 (UTC 기준 00:00 ~ 11:00, 매 1시간마다 실행)
+    - cron: '0 0-11 * * *'
+  workflow_dispatch: # Actions 탭에서 수동 실행 가능
 
 jobs:
   run-scanner:
