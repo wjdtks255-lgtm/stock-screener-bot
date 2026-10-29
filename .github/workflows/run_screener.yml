@@ -1,9 +1,10 @@
-name: Daily Stock & News Scanner
+name: Stock Screener Bot (Weekday Market Hours)
 
 on:
   schedule:
-    # 한국시간(KST) 매일 09:00 ~ 15:00 (UTC 기준 00:00 ~ 06:00, 매 1시간마다 실행)
-    - cron: '0 0-6 * * *'
+    # 한국시간(KST) 기준 월~금요일 09:00 ~ 15:00 
+    # (UTC 기준 월~금요일 00:00 ~ 06:00, 매 1시간마다 실행)
+    - cron: '0 0-6 * * 1-5'
   workflow_dispatch: # Actions 탭에서 언제든 수동 테스트 가능
 
 jobs:
