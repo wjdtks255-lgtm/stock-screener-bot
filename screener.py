@@ -55,7 +55,7 @@ def save_slots(slots):
         json.dump(slots, f, ensure_ascii=False, indent=4)
 
 def get_stock_news(stock_code):
-    """종목별 최신 뉴스 헤드라인(소재거리) 파싱"""
+    """종목별 최신 뉴스 헤드라인 파싱"""
     url = f"https://m.stock.naver.com/api/news/stock/{stock_code}?pageSize=1&page=1"
     headers = {"User-Agent": "Mozilla/5.0"}
     try:
@@ -190,14 +190,13 @@ def run_slot_manager():
                 except:
                     continue
                     
-                # 밥그릇 기법 수급 필터 (상승세 및 거래대금 유입)
                 if cur > 1000 and change_rate >= 0.0:
                     target_slot = empty_slots.pop(0)
                     
                     entry = cur
-                    t1 = int(cur * 1.08) # 1차 목표가 (+8%)
-                    t2 = int(cur * 1.16) # 2차 목표가 (+16%)
-                    sl = int(cur * 0.93) # 손절가 (-7%)
+                    t1 = int(cur * 1.08)
+                    t2 = int(cur * 1.16)
+                    sl = int(cur * 0.93)
                     news_title = get_stock_news(code)
                     
                     target_slot.update({
@@ -213,7 +212,6 @@ def run_slot_manager():
                     
                     slot_changed = True
                     
-                    # 슬롯 추가 알림 전송
                     add_msg = (
                         f"📥 *[신규 종목 슬롯 편입 (Slot Assigned)]*\n"
                         f"📅 일시: `{now_kst}`\n\n"
